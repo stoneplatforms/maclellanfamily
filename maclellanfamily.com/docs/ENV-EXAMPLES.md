@@ -13,7 +13,9 @@ SQS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123456789012/your-queue
 # ==== Dropbox API ====
 DROPBOX_CLIENT_ID=REPLACE
 DROPBOX_CLIENT_SECRET=REPLACE
-DROPBOX_REFRESH_TOKEN=REPLACE
+# Use either ACCESS_TOKEN (short-lived, expires) OR REFRESH_TOKEN (long-lived, auto-refreshes)
+DROPBOX_ACCESS_TOKEN=REPLACE  # Option 1: Direct access token (from App Console)
+DROPBOX_REFRESH_TOKEN=REPLACE  # Option 2: Refresh token (better for production)
 
 # ==== Firebase Admin (server-side) ====
 FIREBASE_PROJECT_ID=your-firebase-project-id

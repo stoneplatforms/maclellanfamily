@@ -1,8 +1,7 @@
 import { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth, adminDb } from '../../lib/firebase-admin';
-import { DocumentData, DocumentSnapshot } from 'firebase-admin/firestore';
+import { verifyIdToken, getUserDoc } from '../../lib/firebase-server';
 
 const s3 = new S3Client({
   region: process.env.AWS_S3_REGION!,
@@ -24,7 +23,7 @@ async function verifyAuth(request: NextRequest) {
 
   const token = authHeader.split('Bearer ')[1];
   try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
+    const decodedToken = await verifyIdToken(token);
     console.log('Token verified for user:', decodedToken.uid);
     return decodedToken;
   } catch (error) {
@@ -36,32 +35,21 @@ async function verifyAuth(request: NextRequest) {
 async function getUserFolderPath(userId: string): Promise<string> {
   console.log('Attempting to fetch user document for ID:', userId);
   
-  let userDoc: DocumentSnapshot<DocumentData>;
   try {
-    userDoc = await adminDb.collection('users').doc(userId).get();
-    console.log('Firestore response:', {
-      exists: userDoc.exists,
-      path: userDoc.ref.path,
-      documentId: userDoc.id
-    });
+    const userDoc = await getUserDoc(userId);
+    const userData = userDoc.data();
+    const folderPath = userData?.folderPath;
+    console.log('Found folderPath:', folderPath);
+
+    if (!folderPath) {
+      throw new Error('Folder path not found for user');
+    }
+
+    return folderPath;
   } catch (error) {
     console.error('Firestore error:', error);
     throw new Error('Failed to fetch user data');
   }
-
-  if (!userDoc.exists) {
-    throw new Error('User document not found');
-  }
-
-  const userData = userDoc.data();
-  const folderPath = userData?.folderPath;
-  console.log('Found folderPath:', folderPath);
-
-  if (!folderPath) {
-    throw new Error('Folder path not found for user');
-  }
-
-  return folderPath;
 }
 
 async function getPresignedUrl(bucket: string, key: string): Promise<string> {
@@ -260,7 +248,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const buffer = Buffer.from(await file.arrayBuffer());
     const command = new PutObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET!,
-      Key: `${s3Prefix}${folder}/${file.name}`, // Add folder to the path
+      Key: `${s3Prefix}${folder}/${file.name}`,
       Body: buffer,
       ContentType: file.type,
       CacheControl: 'public, max-age=31536000, immutable',

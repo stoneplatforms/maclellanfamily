@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-// import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { auth, onAuthStateChanged } from "../lib/firebase-client";
 import { Book, Stars, Sparkles } from 'lucide-react';
 import type { User } from 'firebase/auth';
@@ -125,7 +125,7 @@ const DecorativeSticker = ({
 );
 
 export default function S3FolderList() {
-  // const router = useRouter();
+  const router = useRouter();
   const [folderData, setFolderData] = useState<FolderData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -133,52 +133,47 @@ export default function S3FolderList() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
   const mounted = useRef(true);
+  const hasFetchedRef = useRef(false);
 
-  const navigateWithReload = (url: string) => {
-    window.location.href = url;
-  };
-
+  // Check authentication and fetch data in one effect
   useEffect(() => {
-    const handleNavigation = () => {
-      window.location.reload();
-    };
-
-    window.addEventListener('popstate', handleNavigation);
-    return () => {
-      window.removeEventListener('popstate', handleNavigation);
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (!mounted.current) return;
+    let isSubscribed = true;
+    
+    const checkAuthAndFetch = async (currentUser: User | null) => {
+      if (!isSubscribed || !mounted.current) {
+        console.log('Yearbooks: Not subscribed or unmounted, aborting');
+        return;
+      }
       
-      setUser(currentUser);
-      setIsAuthReady(true);
+      console.log('Yearbooks: Checking auth, user:', !!currentUser, currentUser?.email || 'none');
       
       if (!currentUser) {
-        navigateWithReload('/');
+        console.log('Yearbooks: No user, redirecting to login');
+        setIsAuthReady(true);
+        router.replace('/');
+        return;
       }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    if (!user || !isAuthReady || !mounted.current) return;
-
-    const fetchFolders = async () => {
+      
+      // Prevent duplicate fetches using ref
+      if (hasFetchedRef.current) {
+        console.log('Yearbooks: Already fetched, skipping');
+        return;
+      }
+      
+      // User is authenticated - set state and fetch data
+      console.log('Yearbooks: User authenticated:', currentUser.email);
+      setUser(currentUser);
+      setIsAuthReady(true);
+      hasFetchedRef.current = true;
+      
+      // Fetch folders immediately
+      console.log('Yearbooks: Starting to fetch folders...');
       setLoading(true);
       setError(null);
       
       try {
-        const token = await user.getIdToken(true);
+        const token = await currentUser.getIdToken(true);
+        console.log('Yearbooks: Token obtained, making API call to /api/yearbooks...');
         
         const response = await fetch('/api/yearbooks', {
           headers: {
@@ -188,74 +183,96 @@ export default function S3FolderList() {
           }
         });
 
-        if (!mounted.current) return;
-
-        const data = await response.json();
+        console.log('Yearbooks: Response received, status:', response.status, response.ok);
 
         if (!response.ok) {
           if (response.status === 401) {
-            navigateWithReload('/');
+            console.log('Yearbooks: Unauthorized, redirecting to login');
+            router.replace('/');
             return;
           }
-          throw new Error(data.message || `HTTP error! status: ${response.status}`);
+          const errorData = await response.json();
+          throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
         }
 
-        if (data.error) throw new Error(data.error);
+        const data = await response.json();
+        console.log('Yearbooks: Data received, folders:', data.folders?.length || 0, 'raw data:', JSON.stringify(data));
 
-        const folderData = data.folders.map((folder: { name: string; thumbnailUrl: string | null }) => ({
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        const folderData = (data.folders || []).map((folder: { name: string; thumbnailUrl: string | null }) => ({
           name: folder.name,
           thumbnailUrl: folder.thumbnailUrl,
           loading: false,
           error: null
         }));
         
-        if (mounted.current) {
-          setFolderData(folderData);
-          setTimeout(() => {
-            if (mounted.current) {
-              setIsVisible(true);
-            }
-          }, 100);
-        }
+        console.log('Yearbooks: Processed', folderData.length, 'folders, updating state...');
+        console.log('Yearbooks: isSubscribed:', isSubscribed, 'mounted:', mounted.current);
+        
+        // Always update state - React will handle re-renders
+        setFolderData(folderData);
+        setLoading(false);
+        console.log('Yearbooks: State updated - loading: false, folderData.length:', folderData.length);
+        
+        setTimeout(() => {
+          setIsVisible(true);
+          console.log('Yearbooks: Visibility set to true');
+        }, 100);
       } catch (err) {
-        console.error('Fetch error:', err);
-        if (mounted.current) {
-          if (err instanceof FirebaseError) {
-            if (err.code === 'auth/invalid-token') {
-              navigateWithReload('/');
-              return;
-            }
-          }
-          setError(err instanceof Error ? err.message : 'An error occurred');
-        }
-      } finally {
-        if (mounted.current) {
-          setLoading(false);
-        }
+        console.error('Yearbooks: Fetch error:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        setLoading(false);
+        hasFetchedRef.current = false; // Allow retry on error
       }
     };
+    
+    // Check auth state immediately
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+      console.log('Yearbooks: User found immediately, starting fetch...');
+      checkAuthAndFetch(currentUser);
+    }
+    
+    // Listen for auth state changes (this will fire when auth state is restored from localStorage)
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (!isSubscribed || !mounted.current) return;
+      
+      console.log('Yearbooks: onAuthStateChanged fired, user:', !!currentUser, 'hasFetched:', hasFetchedRef.current);
+      if (currentUser && !hasFetchedRef.current) {
+        checkAuthAndFetch(currentUser);
+      } else if (!currentUser) {
+        console.log('Yearbooks: No user in auth state change, redirecting');
+        setIsAuthReady(true);
+        router.replace('/');
+      }
+    });
 
-    fetchFolders();
-  }, [user, isAuthReady]);
+    return () => {
+      isSubscribed = false;
+      unsubscribe();
+    };
+  }, [router]);
+
+  useEffect(() => {
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const handleFolderClick = (folderName: string) => {
-    navigateWithReload(`/yearbooks/${folderName}`);
+    router.push(`/yearbooks/${folderName}`);
   };
 
-  if (!isAuthReady || loading || !user || error) {
-    return (
-      <div className="min-h-screen bg-[#f5e6d3] flex justify-center items-center">
-        <div className="relative bg-white p-8 rounded-lg shadow-md transform -rotate-1">
-          <DecorativeTape className="-rotate-45 -top-4 -left-4" />
-          <DecorativeTape className="rotate-45 -top-4 -right-4" />
-          <div className={`text-xl ${error ? "text-red-500" : "text-amber-900"} font-indie`}>
-            {error ? `Error: ${error}` : loading ? "Loading your library..." : "Checking authentication..."}
-          </div>
-        </div>
-      </div>
-    );
+  // Redirect to login if not authenticated
+  if (isAuthReady && !user) {
+    router.replace('/');
+    return null;
   }
 
+  // Render main content immediately - no loading screens
   return (
     <div className="min-h-screen bg-[#f5e6d3] p-4 md:p-8">
       <div className="max-w-7xl mx-auto">
@@ -279,7 +296,7 @@ export default function S3FolderList() {
               <span className="relative z-10">Your Yearbook Library</span>
               <div className="absolute -bottom-2 left-0 w-full h-4 bg-yellow-200/50 -rotate-1" />
             </h1>
-            <div className="text-lg text-amber-800 italic font-indie">{user.email}</div>
+            <div className="text-lg text-amber-800 italic font-indie">{user?.email}</div>
             <div className="mt-4 w-32 h-1 bg-amber-800 mx-auto" />
           </div>
         </div>
@@ -298,7 +315,19 @@ export default function S3FolderList() {
             <DecorativeTape className="-rotate-12 -top-4 left-8" />
             <DecorativeTape className="rotate-12 -top-4 right-8" />
             
-            {folderData.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-12">
+                <p className="text-xl font-indie text-amber-800 italic transform -rotate-2">
+                  Loading your library...
+                </p>
+              </div>
+            ) : error ? (
+              <div className="text-center py-12">
+                <p className="text-xl font-indie text-red-500 italic transform -rotate-2">
+                  Error: {error}
+                </p>
+              </div>
+            ) : folderData.length === 0 ? (
               <div className="text-center py-12">
                 <p className="text-xl font-indie text-amber-800 italic transform -rotate-2">
                   Your library is empty
@@ -325,20 +354,6 @@ export default function S3FolderList() {
       </div>
 
       <style jsx global>{`
-        @keyframes floatAnimation {
-          0% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-          100% { transform: translateY(0px); }
-        }
-
-        .book-hover-effect {
-          transition: transform 0.3s ease-in-out;
-        }
-
-        .book-hover-effect:hover {
-          transform: translateY(-10px) scale(1.02);
-        }
-
         .font-indie {
           font-family: 'Indie Flower', cursive;
         }

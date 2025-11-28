@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Indie_Flower } from 'next/font/google';  // Add this import
+import { Indie_Flower } from 'next/font/google';
 import "./globals.css";
 import Navbar from "./components/NavBar";
+
+// Initialize Firebase at Next.js startup - import ensures it runs before any pages load
+// This must be imported at the top level of layout.tsx to ensure it runs first
+import "./lib/firebase-client";
 
 // Local fonts
 const geistSans = localFont({

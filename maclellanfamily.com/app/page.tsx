@@ -14,27 +14,25 @@ export default function Page() {
   const [password, setPassword] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
 
+  // Check if user is already logged in
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      setIsAuthReady(true);
-      
+      setIsCheckingAuth(false);
       if (user) {
-        try {
-          router.replace('/yearbooks');
-        } catch (error) {
-          console.error('Navigation error:', error);
-        }
+        // User is already logged in, redirect to yearbooks
+        console.log('Home: User already logged in, redirecting to yearbooks');
+        router.replace('/yearbooks');
       }
     });
 
     return () => unsubscribe();
   }, [router]);
 
-  const handleLogin = async () => {
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
     if (!email || !password) {
       setErrorMessage("Email and Password are required.");
       return;
@@ -46,9 +44,13 @@ export default function Page() {
     try {
       const user = await login(email, password);
       if (user) {
+        console.log('Home: Login successful, redirecting to yearbooks');
         setEmail("");
         setPassword("");
-        window.location.reload();
+        // Wait a moment for auth state to propagate, then redirect
+        setTimeout(() => {
+          router.push('/yearbooks');
+        }, 100);
       }
     } catch (error) {
       if (error instanceof FirebaseError) {
@@ -80,7 +82,7 @@ export default function Page() {
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      handleLogin();
+      handleLogin(e as any);
     }
   };
 
@@ -91,26 +93,17 @@ export default function Page() {
     backgroundRepeat: 'no-repeat'
   };
 
-  if (!isAuthReady) {
+  if (isCheckingAuth) {
     return (
       <div className="flex items-center justify-center min-h-screen" style={backgroundStyle}>
-        <div className="text-center font-handwriting text-2xl">Opening your scrapbook...</div>
-      </div>
-    );
-  }
-
-  if (user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen" style={backgroundStyle}>
-        <div className="text-center font-handwriting text-2xl">Finding your memories...</div>
+        <div className="text-center font-handwriting text-2xl">Checking authentication...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen relative" style={backgroundStyle}>
-      {/* Login form container positioned in bottom corner */}
-      <div className="absolute bottom-8 right-8 w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center" style={backgroundStyle}>
+      <div className="w-full max-w-sm px-4">
         <div className="relative">
           {/* Decorative elements */}
           <div className="absolute -top-4 left-4 transform -rotate-12">
@@ -127,45 +120,49 @@ export default function Page() {
                 Sign In
               </h1>
               
-              <div className="mb-4">
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Email"
-                  className="w-full px-3 py-2 border-2 border-amber-200 rounded-lg bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300 font-handwriting text-base"
-                />
-              </div>
-              
-              <div className="mb-4">
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Password"
-                  className="w-full px-3 py-2 border-2 border-amber-200 rounded-lg bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300 font-handwriting text-base"
-                />
-              </div>
-
-              <button
-                onClick={handleLogin}
-                disabled={isLoading}
-                className="w-full bg-orange-600 text-white py-2 rounded-lg hover:bg-orange-700 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 font-handwriting text-lg"
-              >
-                {isLoading ? "Opening..." : "Open Scrapbook"}
-              </button>
-
-              {errorMessage && (
-                <div className="mt-3 p-2 bg-red-50 border-2 border-red-200 rounded-lg text-red-600 text-center font-handwriting text-sm">
-                  {errorMessage}
+              <form onSubmit={handleLogin}>
+                <div className="mb-4">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Email"
+                    className="w-full px-3 py-2 border-2 border-amber-200 rounded-lg bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300 font-handwriting text-base text-black"
+                    required
+                  />
                 </div>
-              )}
+                
+                <div className="mb-4">
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Password"
+                    className="w-full px-3 py-2 border-2 border-amber-200 rounded-lg bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300 font-handwriting text-base text-black"
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full bg-orange-600 text-white py-2 rounded-lg hover:bg-orange-700 transition-all transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 font-handwriting text-lg"
+                >
+                  {isLoading ? "Opening..." : "Open Scrapbook"}
+                </button>
+
+                {errorMessage && (
+                  <div className="mt-3 p-2 bg-red-50 border-2 border-red-200 rounded-lg text-red-600 text-center font-handwriting text-sm">
+                    {errorMessage}
+                  </div>
+                )}
+              </form>
             </div>
           </div>
         </div>
       </div>
     </div>
   );
-} 
+}
