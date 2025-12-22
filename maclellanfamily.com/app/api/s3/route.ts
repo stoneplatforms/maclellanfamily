@@ -38,6 +38,24 @@ async function verifyAdminRole(authHeader: string | null) {
   }
 }
 
+/**
+ * Determine S3 prefix based on folder path structure
+ * Supports both "Apps/" and "0 US/" folder structures
+ */
+function getS3Prefix(folderPath: string): string {
+  const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
+  
+  // Check if this is an App Folder structure
+  if (cleanPath.toLowerCase().startsWith('apps/') || cleanPath.toLowerCase().startsWith('apps')) {
+    // App Folder structure: Apps/stone-development/
+    const appFolderName = cleanPath.replace(/^apps\/?/i, '');
+    return `Apps/${appFolderName}/`;
+  } else {
+    // Standard structure: 0 US/{user}/
+    return `0 US/${cleanPath}/`;
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     // Check authorization
@@ -53,9 +71,9 @@ export async function GET(request: NextRequest) {
       throw new Error('User folder path not configured');
     }
 
-    // Clean and construct the S3 prefix
-    const cleanUserPath = userFolderPath.startsWith('/') ? userFolderPath.slice(1) : userFolderPath;
-    const prefix = `0 US/${cleanUserPath}/`;
+    // Construct the S3 prefix (supports both Apps/ and 0 US/ structures)
+    const prefix = getS3Prefix(userFolderPath);
+    console.log('Using S3 prefix:', prefix);
 
     // List objects in the S3 bucket
     const command = new ListObjectsV2Command({

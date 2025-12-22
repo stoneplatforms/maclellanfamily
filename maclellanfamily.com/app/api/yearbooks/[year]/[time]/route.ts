@@ -68,14 +68,36 @@ const verifyAuthToken = async (token: string) => {
   }
 };
 
+/**
+ * Determine S3 prefix based on folder path structure
+ * Supports both "Apps/" and "0 US/" folder structures
+ */
+function getS3Prefix(folderPath: string): string {
+  const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
+  
+  // Check if this is an App Folder structure
+  if (cleanPath.toLowerCase().startsWith('apps/') || cleanPath.toLowerCase().startsWith('apps')) {
+    // App Folder structure: Apps/stone-development/
+    const appFolderName = cleanPath.replace(/^apps\/?/i, '');
+    return `Apps/${appFolderName}/`;
+  } else {
+    // Standard structure: 0 US/{user}/
+    return `0 US/${cleanPath}/`;
+  }
+}
+
 export async function GET(
   request: NextRequest,
-  context: { params: { year: Promise<string>; time: Promise<string> } }
+  context: { params: Promise<{ year: string; time: string }> }
 ) {
-  const year = await context.params.year;
-  const time = await context.params.time;
+  // Next.js 15+ requires awaiting the entire params object
+  const params = await context.params;
+  const { year, time } = params;
+  
+  console.log(`[Time Route] Received params - year: "${year}", time: "${time}"`);
   
   if (!year || !time) {
+    console.error('[Time Route] Missing params!', { year, time });
     return NextResponse.json(
       { 
         error: 'Bad Request',
@@ -159,11 +181,12 @@ export async function GET(
       );
     }
 
-    // Construct the S3 path
-    const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
+    // Construct the S3 path using dynamic prefix (supports both Apps/ and 0 US/)
+    const s3Prefix = getS3Prefix(folderPath);
     const prefix = time === 'other' 
-      ? `0 US/${cleanPath}/${year}/`
-      : `0 US/${cleanPath}/${year}/${time}/`;
+      ? `${s3Prefix}${year}/`
+      : `${s3Prefix}${year}/${time}/`;
+    console.log(`[Time Route] Using S3 prefix: "${prefix}" for year: "${year}", time: "${time}"`);
 
     // List objects in the folder
     const command = new ListObjectsV2Command({

@@ -52,6 +52,24 @@ async function getUserFolderPath(userId: string): Promise<string> {
   }
 }
 
+/**
+ * Determine S3 prefix based on folder path structure
+ * Supports both "Apps/" and "0 US/" folder structures
+ */
+function getS3Prefix(folderPath: string): string {
+  const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
+  
+  // Check if this is an App Folder structure
+  if (cleanPath.toLowerCase().startsWith('apps/') || cleanPath.toLowerCase().startsWith('apps')) {
+    // App Folder structure: Apps/stone-development/
+    const appFolderName = cleanPath.replace(/^apps\/?/i, '');
+    return `Apps/${appFolderName}/`;
+  } else {
+    // Standard structure: 0 US/{user}/
+    return `0 US/${cleanPath}/`;
+  }
+}
+
 async function getPresignedUrl(bucket: string, key: string): Promise<string> {
   const command = new GetObjectCommand({
     Bucket: bucket,
@@ -95,8 +113,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const userId = decodedToken.uid;
 
     const folderPath = await getUserFolderPath(userId);
-    const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
-    const s3Prefix = `0 US/${cleanPath}/`;
+    const s3Prefix = getS3Prefix(folderPath);
+    console.log('Using S3 prefix:', s3Prefix);
 
     const { searchParams } = new URL(request.url);
     const specificFolder = searchParams.get('folder');
@@ -225,8 +243,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const userId = decodedToken.uid;
 
     const folderPath = await getUserFolderPath(userId);
-    const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
-    const s3Prefix = `0 US/${cleanPath}/`;
+    const s3Prefix = getS3Prefix(folderPath);
+    console.log('Using S3 prefix for upload:', s3Prefix);
 
     const formData = await request.formData();
     const file = formData.get('file') as File;

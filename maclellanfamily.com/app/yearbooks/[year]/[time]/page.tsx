@@ -179,9 +179,10 @@ const ImageModal: React.FC<ModalProps> = ({ image, onClose, onNext, onPrevious, 
             alt="Full size view"
             fill
             className="object-contain"
-            sizes="(max-width: 768px) 100vw, 1200px"
+            sizes="100vw"
             priority
             unoptimized
+            quality={100}
             draggable={false}
           />
         </div>
@@ -336,7 +337,8 @@ const ScrapbookPage: React.FC<PageProps> = ({
                         alt={`Item ${index + 1}`}
                         fill
                         className="object-cover"
-                        sizes="(max-width: 768px) 33vw, 25vw"
+                        sizes="100vw"
+                        quality={90}
                         unoptimized
                       />
                     )}

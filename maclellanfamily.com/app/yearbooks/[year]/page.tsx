@@ -226,11 +226,13 @@ export default function YearPage() {
     if (!user || !isAuthReady || !mounted.current) return;
 
     const fetchFolders = async (retryCount = 0) => {
+      console.log('YearPage: fetchFolders called for year:', year);
       setLoading(true);
       setError(null);
       
       try {
         const token = await user.getIdToken(true);
+        console.log('YearPage: Fetching /api/yearbooks/' + year);
         const response = await fetch(`/api/yearbooks/${year}`, {
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -242,6 +244,7 @@ export default function YearPage() {
         if (!mounted.current) return;
 
         const data = await response.json();
+        console.log('YearPage: Response:', { ok: response.ok, status: response.status, data });
 
         if (!response.ok) {
           if (data.code === 'PLUGIN_ERROR' && retryCount < 2) {
@@ -257,15 +260,18 @@ export default function YearPage() {
         }
 
         if (mounted.current && Array.isArray(data.folders)) {
+          console.log('YearPage: Setting folders:', data.folders.length, 'folders');
           setFolders(data.folders);
           setTimeout(() => {
             if (mounted.current) {
               setIsVisible(true);
             }
           }, 100);
+        } else {
+          console.log('YearPage: Not setting folders - mounted:', mounted.current, 'isArray:', Array.isArray(data.folders));
         }
       } catch (err) {
-        console.error('Error fetching folders:', err);
+        console.error('YearPage: Error fetching folders:', err);
         if (mounted.current) {
           if (err instanceof FirebaseError) {
             handleAuthError(err);
@@ -276,7 +282,10 @@ export default function YearPage() {
         }
       } finally {
         if (mounted.current) {
+          console.log('YearPage: Setting loading to false');
           setLoading(false);
+        } else {
+          console.log('YearPage: Component unmounted, not setting loading to false');
         }
       }
     };
@@ -320,6 +329,9 @@ export default function YearPage() {
     const startIndex = pageIndex * itemsPerPage;
     return folders.slice(startIndex, startIndex + itemsPerPage);
   };
+
+  // Debug logging
+  console.log('YearPage render:', { isAuthReady, loading, hasUser: !!user, error, foldersCount: folders.length });
 
   if (!isAuthReady || loading || !user || error) {
     return (

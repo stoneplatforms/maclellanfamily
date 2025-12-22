@@ -27,7 +27,12 @@ export async function POST(request: NextRequest) {
     // Persist userFolderPath for webhook-triggered syncs
     await adminDb.collection('integrations').doc('dropbox').set({ userFolderPath }, { merge: true });
 
-    await syncDropboxToS3({ userFolderPath, pathPrefix: '0 US', recursive: true });
+    // Determine prefix based on folder path (Apps vs 0 US)
+    const cleanPath = userFolderPath.replace(/^\/+|\/+$/g, '');
+    const pathPrefix = cleanPath.toLowerCase().startsWith('apps') ? 'Apps' : '0 US';
+    console.log(`Manual sync using prefix: ${pathPrefix}, folderPath: ${userFolderPath}`);
+
+    await syncDropboxToS3({ userFolderPath, pathPrefix, recursive: true });
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof Error) {

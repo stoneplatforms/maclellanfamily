@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { Dropbox, DropboxResponseError } from 'dropbox';
 import fetch from 'cross-fetch';
@@ -276,6 +276,41 @@ async function processEntries(entries: any[], prefix: string, cleanUser: string,
   const appFolderName = isAppFolder ? cleanUser.replace(/^apps\/?/i, '') : null;
   
   for (const entry of entries) {
+    // Handle deleted files
+    if (entry['.tag'] === 'deleted') {
+      const pathLower: string = entry.path_lower;
+      console.log(`🗑️  File deleted in Dropbox: ${pathLower}`);
+      
+      // Normalize path - same logic as file processing
+      let relative = pathLower.replace(/^\/+/, '');
+      
+      if (isAppFolder && appFolderName) {
+        relative = `Apps/${appFolderName}/${relative}`;
+      } else if (prefix.toLowerCase() === 'apps') {
+        relative = relative.replace(/^apps\//i, 'Apps/');
+      } else {
+        relative = relative.replace(/^0 us\//i, '0 US/');
+      }
+      
+      // Only process if it's an image/video file
+      const isImage = isImageFile(relative);
+      const isVideo = isVideoFile(relative);
+      
+      if (isImage || isVideo) {
+        const s3Key = relative.startsWith(prefix) ? relative : `${prefix}/${relative}`;
+        
+        try {
+          await deleteFromS3(s3Key);
+          console.log(`✅ Deleted from S3: ${s3Key}`);
+        } catch (error) {
+          console.error(`❌ Failed to delete from S3: ${s3Key}`, error);
+        }
+      }
+      
+      continue; // Skip to next entry
+    }
+    
+    // Handle new/modified files
     if (entry['.tag'] === 'file') {
       const pathLower: string = entry.path_lower; // For App Folder: /folder/file.jpg (relative to app folder)
       console.log(`Found file: ${pathLower}`);
@@ -308,37 +343,40 @@ async function processEntries(entries: any[], prefix: string, cleanUser: string,
       const s3Key = relative.startsWith(prefix) ? relative : `${prefix}/${relative}`;
       console.log(`Processing ${isImage ? 'image' : 'video'}: ${s3Key}`);
 
-      // If SQS is configured, enqueue job to Lambda (best for production/large files)
+      // RECOMMENDED: Use SQS + Lambda for ALL production workloads
+      // Benefits: No timeout limits, parallel processing, handles multi-GB files
       if (sqsClient && process.env.SQS_QUEUE_URL && !process.env.SQS_QUEUE_URL.includes('your-queue')) {
-        console.log(`Queueing to SQS: ${s3Key}`);
+        console.log(`📨 Queueing to SQS: ${s3Key}`);
         await enqueueSqsJob({
           dropboxId: entry.id,
           path: `/${relative}`,
           type: isVideo ? 'video' : 'image',
           userFolderPath: cleanUser,
-          imageSizes: [480, 960, 1600]
+          s3Key: s3Key
         });
         continue;
       }
 
-      // Direct processing in Next.js route (no Lambda needed)
-      // Process sequentially (one at a time) to avoid Vercel timeout
-      // - Vercel Free: 10 seconds max
-      // - Vercel Pro: 60 seconds max
-      // - Self-hosted: No limit
+      // FALLBACK: Direct processing in Next.js (NOT recommended for large files)
+      // Limitations:
+      // - Vercel Pro: 60 second timeout (may fail on large files)
+      // - Memory limits: 1GB max
+      // - No parallel processing
+      // Use SQS+Lambda for production!
       if (isImage) {
-        console.log(`Processing image directly (no SQS): ${s3Key}`);
+        console.log(`⚠️  Processing directly (no SQS) - may timeout on large files: ${s3Key}`);
         try {
-          // Process sequentially - await each file to complete before moving to next
-          // This prevents overwhelming Vercel and avoids timeout issues
-          await processImageDirectly(entry.id, s3Key, [480, 960, 1600]);
+          await processImageDirectly(entry.id, s3Key);
           console.log(`✅ Successfully processed: ${s3Key}`);
         } catch (error) {
           console.error(`❌ Failed to process image ${s3Key}:`, error);
+          if (error instanceof Error && error.message.includes('timeout')) {
+            console.error(`💡 TIP: Configure SQS_QUEUE_URL to avoid timeouts on large files`);
+          }
           // Continue processing other files even if one fails
         }
       } else if (isVideo) {
-        console.warn(`Video processing requires Lambda/SQS. Skipping ${s3Key}`);
+        console.warn(`⚠️  Video processing requires Lambda/SQS. Skipping ${s3Key}`);
       }
     }
   }
@@ -346,7 +384,7 @@ async function processEntries(entries: any[], prefix: string, cleanUser: string,
 
 function isImageFile(key: string) {
   const lower = key.toLowerCase();
-  return ['.jpg', '.jpeg', '.png', '.gif', '.webp'].some(ext => lower.endsWith(ext));
+  return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif'].some(ext => lower.endsWith(ext));
 }
 
 function isVideoFile(key: string) {
@@ -355,12 +393,13 @@ function isVideoFile(key: string) {
 }
 
 /**
- * Process image directly (no Lambda) - creates multiple size variants
- * Same as Lambda but runs in Next.js route
+ * Process image directly (no Lambda) - creates single optimized JPG
+ * Handles HEIC/HEIF conversion and compresses 4K images optimally
  */
-async function processImageDirectly(fileId: string, s3Key: string, imageSizes: number[] = [480, 960, 1600]) {
+async function processImageDirectly(fileId: string, s3Key: string) {
   try {
     // Download content from Dropbox by file id
+    console.log(`⏬ Downloading from Dropbox: ${s3Key}`);
     const dl = await dropbox.filesDownload({ path: fileId });
     const fileBinary = (dl.result as any).fileBinary as ArrayBuffer | undefined;
     const fileBlob = (dl.result as any).fileBlob as Blob | undefined;
@@ -379,6 +418,65 @@ async function processImageDirectly(fileId: string, s3Key: string, imageSizes: n
       inputBuffer = Buffer.from(file);
     }
 
+    const fileSizeMB = inputBuffer.length / 1024 / 1024;
+    console.log(`📦 Downloaded: ${fileSizeMB.toFixed(2)}MB`);
+
+    // Extract directory and filename
+    const parts = s3Key.split('/');
+    const filename = parts.pop() || '';
+    const dir = parts.join('/');
+    const dotIndex = filename.lastIndexOf('.');
+    const name = dotIndex > -1 ? filename.slice(0, dotIndex) : filename;
+    const ext = dotIndex > -1 ? filename.slice(dotIndex).toLowerCase() : '';
+
+    console.log(`🖼️  Processing ${ext} image: ${filename}`);
+
+    // Detect image format and get metadata
+    const image = sharp(inputBuffer);
+    const metadata = await image.metadata();
+    console.log(`Original image: ${metadata.width}x${metadata.height}, format: ${metadata.format}, size: ${(inputBuffer.length / 1024 / 1024).toFixed(2)}MB`);
+
+    // Create single optimally compressed JPG
+    // For 4K images (3840x2160 or higher), we preserve quality while compressing
+    // Max dimension: 3840px (4K), Quality: 85% (excellent), Progressive: true (faster perceived load)
+    const compressed = await image
+      .resize(3840, 3840, { 
+        fit: 'inside', 
+        withoutEnlargement: true,
+        kernel: 'lanczos3' // Best quality downscaling
+      })
+      .jpeg({ 
+        quality: 85,           // Higher quality for 4K images
+        progressive: true,     // Progressive rendering for web
+        mozjpeg: true,         // Use mozjpeg for better compression
+        chromaSubsampling: '4:4:4'  // Better color quality
+      })
+      .toBuffer();
+    
+    console.log(`Compressed to: ${(compressed.length / 1024 / 1024).toFixed(2)}MB (${((compressed.length / inputBuffer.length) * 100).toFixed(1)}% of original)`);
+
+    // Always save as .jpg regardless of input format (handles HEIC, PNG, etc.)
+    await s3Client.send(new PutObjectCommand({
+      Bucket: process.env.AWS_S3_BUCKET!,
+      Key: `${dir}/${name}.jpg`,
+      Body: compressed,
+      ContentType: 'image/jpeg',
+      CacheControl: 'public, max-age=31536000, immutable'
+    }));
+
+    console.log(`✅ Processed image: ${s3Key} → ${name}.jpg (single compressed variant)`);
+  } catch (error) {
+    console.error(`Error processing image ${s3Key}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Delete file from S3
+ * Handles both original filename and .jpg conversion
+ */
+async function deleteFromS3(s3Key: string) {
+  try {
     // Extract directory and filename
     const parts = s3Key.split('/');
     const filename = parts.pop() || '';
@@ -386,39 +484,19 @@ async function processImageDirectly(fileId: string, s3Key: string, imageSizes: n
     const dotIndex = filename.lastIndexOf('.');
     const name = dotIndex > -1 ? filename.slice(0, dotIndex) : filename;
 
-    // Create original compressed version (max 2000px)
-    const original = await sharp(inputBuffer)
-      .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer();
+    // Always delete the .jpg version since we save all images as .jpg
+    const jpgKey = `${dir}/${name}.jpg`;
     
-    await s3Client.send(new PutObjectCommand({
+    console.log(`Deleting from S3: ${jpgKey}`);
+    
+    await s3Client.send(new DeleteObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET!,
-      Key: `${dir}/${name}.jpg`,
-      Body: original,
-      ContentType: 'image/jpeg',
-      CacheControl: 'public, max-age=31536000, immutable'
+      Key: jpgKey
     }));
 
-    // Create size variants
-    for (const width of imageSizes) {
-      const variant = await sharp(inputBuffer)
-        .resize(width, width, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 80 })
-        .toBuffer();
-      
-      await s3Client.send(new PutObjectCommand({
-        Bucket: process.env.AWS_S3_BUCKET!,
-        Key: `${dir}/${name}_w${width}.jpg`,
-        Body: variant,
-        ContentType: 'image/jpeg',
-        CacheControl: 'public, max-age=31536000, immutable'
-      }));
-    }
-
-    console.log(`Processed image: ${s3Key} (created ${imageSizes.length + 1} variants)`);
+    console.log(`🗑️  Deleted from S3: ${jpgKey}`);
   } catch (error) {
-    console.error(`Error processing image ${s3Key}:`, error);
+    console.error(`Error deleting from S3 ${s3Key}:`, error);
     throw error;
   }
 }
@@ -433,14 +511,21 @@ async function enqueueSqsJob(payload: {
   path: string;
   type: 'image' | 'video';
   userFolderPath: string;
-  imageSizes?: number[];
+  s3Key: string;
 }) {
   if (!sqsClient || !process.env.SQS_QUEUE_URL) return;
+  
   const command = new SendMessageCommand({
     QueueUrl: process.env.SQS_QUEUE_URL,
-    MessageBody: JSON.stringify(payload)
+    MessageBody: JSON.stringify({
+      ...payload,
+      timestamp: new Date().toISOString(),
+      priority: payload.type === 'image' ? 'normal' : 'low'
+    })
   });
+  
   await sqsClient.send(command);
+  console.log(`✅ Queued to SQS: ${payload.s3Key}`);
 }
 
 

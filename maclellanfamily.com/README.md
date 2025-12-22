@@ -38,3 +38,56 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 ## Docs
 
 Internal docs and plans live in `docs/`.
+
+### 🚨 Quick Start (Webhook Fix)
+- **[QUICK-START.md](docs/QUICK-START.md)** - 2-minute fix for webhook 308 error
+
+### 📚 Setup & Configuration
+- **[PRODUCTION-WEBHOOK-SETUP.md](docs/PRODUCTION-WEBHOOK-SETUP.md)** - Production webhook setup
+- **[DROPBOX-WEBHOOK-SETUP.md](docs/DROPBOX-WEBHOOK-SETUP.md)** - General webhook guide
+- **[ENV-EXAMPLES.md](docs/ENV-EXAMPLES.md)** - Environment variables
+- **[GET-DROPBOX-REFRESH-TOKEN.md](docs/GET-DROPBOX-REFRESH-TOKEN.md)** - Get refresh token
+
+### 🔧 Troubleshooting
+- **[WEBHOOK-REDIRECT-FIX.md](docs/WEBHOOK-REDIRECT-FIX.md)** - Fix 308 redirect error
+- **[YEARBOOK-ROUTES-FIX.md](docs/YEARBOOK-ROUTES-FIX.md)** - Fix "Year parameter required" error
+- **[NEXTJS-15-PARAMS-FIX.md](docs/NEXTJS-15-PARAMS-FIX.md)** - Fix Next.js 15+ async params issue
+- **[RESET-FIREBASE-AUTH.md](docs/RESET-FIREBASE-AUTH.md)** - Reset Firebase authentication
+- **[FIX-SUMMARY.md](docs/FIX-SUMMARY.md)** - Complete fix overview
+- **[TESTING-CHECKLIST.md](docs/TESTING-CHECKLIST.md)** - End-to-end testing
+
+### 🏗️ Architecture
+- **[ARCHITECTURE-DIAGRAM.md](docs/ARCHITECTURE-DIAGRAM.md)** - Visual flow diagrams
+- **[IMAGE-COMPRESSION.md](docs/IMAGE-COMPRESSION.md)** - Image compression system (single optimized JPG)
+- **[DROPBOX-DELETIONS.md](docs/DROPBOX-DELETIONS.md)** - Automatic deletion sync (Dropbox → S3)
+- **[LARGE-FILE-PROCESSING.md](docs/LARGE-FILE-PROCESSING.md)** - Multi-GB files & batch processing (Lambda + SQS)
+- **[CDN-and-Compression-Plan.md](docs/CDN-and-Compression-Plan.md)** - Performance optimization
+
+### 🧪 Development
+- **[LOCAL-WEBHOOK-DEV.md](docs/LOCAL-WEBHOOK-DEV.md)** - Test webhooks locally with ngrok
+
+## Features
+
+### Automatic Image Sync
+- Upload images to Dropbox → Automatically compressed and synced to S3
+- **Delete images in Dropbox → Automatically deleted from S3** 🗑️
+- **Handles multi-GB files and batch uploads** 🚀
+- Webhook-based (real-time, no polling)
+- Single optimized JPG (max 4K, 85% quality, progressive, mozjpeg)
+- HEIC/PNG → JPG conversion
+- Supports both "0 US" and "Apps" folder structures
+- **Lambda + SQS architecture:** No timeout limits, parallel processing
+
+### Yearbooks Gallery
+- Beautiful scrapbook-style UI
+- Organized by folders (years, events, etc.)
+- Responsive images with automatic size selection
+- Secure access with Firebase authentication
+
+### Image Compression
+- Single optimized JPG per image
+- Max resolution: 3840px (4K)
+- Quality: 85% (excellent, progressive JPEG)
+- HEIC/PNG/WebP → JPG conversion
+- ~85% file size reduction
+- Immutable caching (1 year)

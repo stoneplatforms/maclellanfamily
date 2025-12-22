@@ -11,10 +11,21 @@ locals {
   bucket_name   = var.bucket_name
 }
 
+resource "aws_sqs_queue" "sync_dlq" {
+  name                      = "${local.queue_name}-dlq"
+  message_retention_seconds = 1209600 # 14 days
+}
+
 resource "aws_sqs_queue" "sync" {
-  name                      = local.queue_name
-  visibility_timeout_seconds = 900
-  message_retention_seconds = 345600
+  name                       = local.queue_name
+  visibility_timeout_seconds = 900  # 15 minutes (must be >= Lambda timeout)
+  message_retention_seconds  = 345600 # 4 days
+  receive_wait_time_seconds  = 20   # Long polling for efficiency
+  
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.sync_dlq.arn
+    maxReceiveCount     = 3 # Retry 3 times before moving to DLQ
+  })
 }
 
 data "archive_file" "lambda_zip" {
@@ -52,8 +63,8 @@ resource "aws_iam_policy" "access_policy" {
       },
       {
         Effect : "Allow",
-        Action : ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
-        Resource : aws_sqs_queue.sync.arn
+        Action : ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"],
+        Resource : [aws_sqs_queue.sync.arn, aws_sqs_queue.sync_dlq.arn]
       },
       {
         Effect : "Allow",
@@ -80,7 +91,20 @@ resource "aws_lambda_function" "consumer" {
   runtime       = "nodejs18.x"
   handler       = "index.handler"
   filename      = data.archive_file.lambda_zip.output_path
-  timeout       = 900
+  
+  # Performance Configuration for Multi-GB Files
+  timeout       = 900      # 15 minutes max per execution
+  memory_size   = 3008     # 3GB RAM (more memory = more CPU = faster processing)
+  
+  # Ephemeral Storage for Large Files
+  # Default is 512MB, increase for multi-GB file processing
+  ephemeral_storage {
+    size = 10240  # 10GB temp storage for processing large files
+  }
+  
+  # Reserved Concurrency (optional - prevents Lambda from consuming all account concurrency)
+  # Uncomment to limit concurrent executions:
+  # reserved_concurrent_executions = 10
 
   environment {
     variables = {
@@ -91,6 +115,7 @@ resource "aws_lambda_function" "consumer" {
       DROPBOX_REFRESH_TOKEN   = var.dropbox_refresh_token
       MEDIACONVERT_ENDPOINT   = var.mediaconvert_endpoint
       MEDIACONVERT_ROLE_ARN   = var.mediaconvert_role_arn
+      NODE_OPTIONS            = "--max-old-space-size=2560" # Allow Node to use more heap
     }
   }
 }
@@ -98,12 +123,40 @@ resource "aws_lambda_function" "consumer" {
 resource "aws_lambda_event_source_mapping" "sqs" {
   event_source_arn = aws_sqs_queue.sync.arn
   function_name    = aws_lambda_function.consumer.arn
-  batch_size       = 1
-  enabled          = true
+  
+  # Batch Processing Configuration
+  batch_size                         = 10   # Process up to 10 images per Lambda invocation
+  maximum_batching_window_in_seconds = 5    # Wait up to 5 seconds to accumulate batch
+  
+  # Partial Batch Responses (allows successful items to be deleted even if some fail)
+  function_response_types = ["ReportBatchItemFailures"]
+  
+  # Scaling Configuration
+  scaling_config {
+    maximum_concurrency = 100  # Max 100 concurrent Lambda executions
+  }
+  
+  enabled = true
 }
 
 output "sqs_queue_url" {
-  value = aws_sqs_queue.sync.id
+  value       = aws_sqs_queue.sync.id
+  description = "Main SQS queue URL for image/video processing"
+}
+
+output "sqs_dlq_url" {
+  value       = aws_sqs_queue.sync_dlq.id
+  description = "Dead Letter Queue URL for failed messages (check here if images aren't processing)"
+}
+
+output "lambda_function_name" {
+  value       = aws_lambda_function.consumer.function_name
+  description = "Lambda function name for monitoring logs"
+}
+
+output "lambda_log_group" {
+  value       = "/aws/lambda/${aws_lambda_function.consumer.function_name}"
+  description = "CloudWatch log group for Lambda execution logs"
 }
 
 

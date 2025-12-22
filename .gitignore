@@ -1,1 +1,10 @@
 .vercel
+
+# Dropbox tokens (keep these secret!)
+dropbox-tokens.json
+dropbox-refresh-token.txt
+dropbox-env-snippet.txt
+accesstoken.txt
+
+stone-dev-dropbox-tokens.json
+maclellanfamily-dropbox-tokens.json

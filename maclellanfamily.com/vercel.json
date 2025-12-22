@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "app/api/dropbox/webhook/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/dropbox/sync/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
+

@@ -59,12 +59,31 @@ const verifyAuthToken = async (token: string) => {
   }
 };
 
+/**
+ * Determine S3 prefix based on folder path structure
+ * Supports both "Apps/" and "0 US/" folder structures
+ */
+function getS3Prefix(folderPath: string): string {
+  const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
+  
+  // Check if this is an App Folder structure
+  if (cleanPath.toLowerCase().startsWith('apps/') || cleanPath.toLowerCase().startsWith('apps')) {
+    // App Folder structure: Apps/stone-development/
+    const appFolderName = cleanPath.replace(/^apps\/?/i, '');
+    return `Apps/${appFolderName}/`;
+  } else {
+    // Standard structure: 0 US/{user}/
+    return `0 US/${cleanPath}/`;
+  }
+}
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: { year: string } }
+  { params }: { params: Promise<{ year: string }> }
 ) {
   try {
-    const { year } = params;
+    // Next.js 15+ requires awaiting params
+    const { year } = await params;
 
     if (!year) {
       return NextResponse.json(
@@ -145,9 +164,10 @@ export async function GET(
       );
     }
 
-    // List S3 contents
-    const cleanPath = folderPath.startsWith('/') ? folderPath.slice(1) : folderPath;
-    const yearPrefix = `0 US/${cleanPath}/${year}/`;
+    // List S3 contents using dynamic prefix (supports both Apps/ and 0 US/)
+    const s3Prefix = getS3Prefix(folderPath);
+    const yearPrefix = `${s3Prefix}${year}/`;
+    console.log(`Using yearPrefix: ${yearPrefix} for year: ${year}`);
 
     const command = new ListObjectsV2Command({
       Bucket: process.env.AWS_S3_BUCKET!,
@@ -157,18 +177,28 @@ export async function GET(
 
     const response = await s3Client.send(command);
     
+    console.log(`S3 Response - CommonPrefixes count: ${response.CommonPrefixes?.length || 0}`);
+    console.log(`S3 Response - Contents count: ${response.Contents?.length || 0}`);
+    
     // Process folders and files
     const items: S3Item[] = [];
     
     // Process folders
     response.CommonPrefixes?.forEach(prefix => {
       if (!prefix.Prefix) return;
+      console.log(`Processing prefix: "${prefix.Prefix}"`);
       const folderName = prefix.Prefix
         .replace(yearPrefix, '')
         .replace('/', '');
+      console.log(`  After replacement: "${folderName}"`);
+      console.log(`  Checking: folderName="${folderName}", year="${year}", equal? ${folderName === year}`);
       
-      if (!folderName || folderName === year) return;
+      if (!folderName || folderName === year) {
+        console.log(`  ⏭️  Skipping (empty or matches year)`);
+        return;
+      }
       
+      console.log(`  ✅ Adding folder: ${folderName}`);
       items.push({
         type: 'folder',
         path: prefix.Prefix,
