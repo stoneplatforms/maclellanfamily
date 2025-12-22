@@ -25,7 +25,7 @@
     "firebase-admin": "latest",
     "lucide-react": "^0.468.0",
     "maclellanfamily": "file:",
-    "next": "^16.0.5",
+    "next": "16.0.10",
     "node-fetch": "^3.3.2",
     "postcss": "latest",
     "react": "^19.2.0",
