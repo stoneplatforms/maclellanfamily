@@ -28,10 +28,10 @@ resource "aws_sqs_queue" "sync" {
   })
 }
 
-data "archive_file" "lambda_zip" {
-  type        = "zip"
-  source_dir  = "../lambda/sqs-consumer/dist"
-  output_path = "./build/${local.lambda_name}.zip"
+# The zip is pre-built by Docker (npm run build:linux) to include Linux binaries
+# We just read the hash to detect changes
+data "local_file" "lambda_zip" {
+  filename = "./build/${local.lambda_name}.zip"
 }
 
 resource "aws_iam_role" "lambda_exec" {
@@ -70,11 +70,6 @@ resource "aws_iam_policy" "access_policy" {
         Effect : "Allow",
         Action : ["mediaconvert:CreateJob"],
         Resource : "*"
-      },
-      {
-        Effect : "Allow",
-        Action : ["iam:PassRole"],
-        Resource : var.mediaconvert_role_arn
       }
     ]
   })
@@ -86,11 +81,12 @@ resource "aws_iam_role_policy_attachment" "attach_access" {
 }
 
 resource "aws_lambda_function" "consumer" {
-  function_name = local.lambda_name
-  role          = aws_iam_role.lambda_exec.arn
-  runtime       = "nodejs18.x"
-  handler       = "index.handler"
-  filename      = data.archive_file.lambda_zip.output_path
+  function_name    = local.lambda_name
+  role             = aws_iam_role.lambda_exec.arn
+  runtime          = "nodejs18.x"
+  handler          = "dist/index.handler"
+  filename         = data.local_file.lambda_zip.filename
+  source_code_hash = data.local_file.lambda_zip.content_base64sha256
   
   # Performance Configuration for Multi-GB Files
   timeout       = 900      # 15 minutes max per execution
@@ -108,13 +104,10 @@ resource "aws_lambda_function" "consumer" {
 
   environment {
     variables = {
-      AWS_REGION              = var.aws_region
       AWS_S3_BUCKET           = local.bucket_name
       DROPBOX_CLIENT_ID       = var.dropbox_client_id
       DROPBOX_CLIENT_SECRET   = var.dropbox_client_secret
       DROPBOX_REFRESH_TOKEN   = var.dropbox_refresh_token
-      MEDIACONVERT_ENDPOINT   = var.mediaconvert_endpoint
-      MEDIACONVERT_ROLE_ARN   = var.mediaconvert_role_arn
       NODE_OPTIONS            = "--max-old-space-size=2560" # Allow Node to use more heap
     }
   }

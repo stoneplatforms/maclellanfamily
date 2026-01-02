@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build:linux:*)",
+      "Bash(terraform apply:*)",
+      "Bash(Select-Object -First 20)",
+      "Bash(Test-Path \"C:\\\\Users\\\\kevin\\\\OneDrive\\\\Documents\\\\GitHub\\\\maclellanfamily\\\\infra\\\\lambda\\\\sqs-consumer\\\\node_modules\\\\sharp\")",
+      "Bash(dir:*)",
+      "Bash(powershell:*)",
+      "Bash(terraform init:*)"
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+# Don't copy local node_modules (we want fresh Linux install)
+node_modules
+dist
+
+# Build artifacts
+*.zip
+
+# IDE
+.vscode
+.idea
+
+# Logs
+*.log

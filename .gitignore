@@ -8,3 +8,15 @@ accesstoken.txt
 
 stone-dev-dropbox-tokens.json
 maclellanfamily-dropbox-tokens.json
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfvars
+.terraform.lock.hcl
+
+# Lambda build artifacts
+infra/terraform/build/
+infra/lambda/sqs-consumer/node_modules/
+infra/lambda/sqs-consumer/dist/
