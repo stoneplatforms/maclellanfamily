@@ -74,9 +74,9 @@ Visit: http://localhost:3000
 
 ## 📚 Documentation
 
-- **[DROPBOX-TOKEN-SETUP.md](DROPBOX-TOKEN-SETUP.md)** - 🔑 Get Dropbox refresh token
-- **[MULTI-PERSON-OAUTH-GUIDE.md](MULTI-PERSON-OAUTH-GUIDE.md)** - 🤝 Multi-person OAuth workflow
-- **[maclellanfamily.com/README.md](maclellanfamily.com/README.md)** - 📖 Complete app documentation
+- **[docs/DEVELOPMENT-PROGRESS.md](maclellanfamily.com/docs/DEVELOPMENT-PROGRESS.md)** - Development progress (1.1, 1.2, …)
+- **[DROPBOX-TOKEN-SETUP.md](DROPBOX-TOKEN-SETUP.md)** - Get Dropbox refresh token
+- **[MULTI-PERSON-OAUTH-GUIDE.md](MULTI-PERSON-OAUTH-GUIDE.md)** - Multi-person OAuth workflow
 
 ## 🔧 Tools & Scripts
 
@@ -118,7 +118,7 @@ S3 Bucket
 Next.js Frontend
 ```
 
-See [maclellanfamily.com/docs/](maclellanfamily.com/docs/) for detailed architecture docs.
+See [maclellanfamily.com/docs/DEVELOPMENT-PROGRESS.md](maclellanfamily.com/docs/DEVELOPMENT-PROGRESS.md) for architecture and progress.
 
 ## 🎯 Features
 
