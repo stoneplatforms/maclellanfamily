@@ -406,6 +406,10 @@ export default function TimeItemsPage() {
   }, []);
 
   useEffect(() => {
+    if (auth.currentUser) {
+      setUser(auth.currentUser);
+      setIsAuthReady(true);
+    }
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setIsAuthReady(true);

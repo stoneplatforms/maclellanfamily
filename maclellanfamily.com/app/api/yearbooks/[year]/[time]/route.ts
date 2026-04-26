@@ -43,27 +43,15 @@ const s3Client = new S3Client({
   forcePathStyle: false
 });
 
-// Verify token with error handling
+// verifyIdToken already validates exp; do not use auth_time vs 3600s (see [year]/route)
 const verifyAuthToken = async (token: string) => {
   try {
-    const decodedToken = await getAuth().verifyIdToken(token);
-    const tokenAge = Date.now() / 1000 - decodedToken.auth_time;
-    
-    if (tokenAge > 3600) {
-      throw new Error('TOKEN_EXPIRED');
-    }
-    
-    return decodedToken;
+    return await getAuth().verifyIdToken(token);
   } catch (error) {
-    if (error instanceof Error && error.message === 'TOKEN_EXPIRED') {
-      throw error;
-    }
-    
     if (error instanceof Error && error.message.includes('app/no-app')) {
       initializeFirebaseAdmin();
       return await getAuth().verifyIdToken(token);
     }
-    
     throw error;
   }
 };
@@ -126,21 +114,11 @@ export async function GET(
     try {
       decodedToken = await verifyAuthToken(token);
     } catch (error) {
-      if (error instanceof Error && error.message === 'TOKEN_EXPIRED') {
-        return NextResponse.json(
-          {
-            error: 'Token Expired',
-            message: 'Please refresh your session',
-            code: 'TOKEN_EXPIRED'
-          },
-          { status: 401 }
-        );
-      }
-      
       return NextResponse.json(
         {
           error: 'Authentication Failed',
-          message: error instanceof Error ? error.message : 'Auth verification failed'
+          message: error instanceof Error ? error.message : 'Auth verification failed',
+          code: 'AUTH_ERROR'
         },
         { status: 401 }
       );

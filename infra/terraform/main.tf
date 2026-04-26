@@ -70,6 +70,11 @@ resource "aws_iam_policy" "access_policy" {
         Effect : "Allow",
         Action : ["mediaconvert:CreateJob"],
         Resource : "*"
+      },
+      {
+        Effect : "Allow",
+        Action : ["iam:PassRole"],
+        Resource : [var.mediaconvert_role_arn]
       }
     ]
   })
@@ -104,11 +109,13 @@ resource "aws_lambda_function" "consumer" {
 
   environment {
     variables = {
-      AWS_S3_BUCKET           = local.bucket_name
-      DROPBOX_CLIENT_ID       = var.dropbox_client_id
-      DROPBOX_CLIENT_SECRET   = var.dropbox_client_secret
-      DROPBOX_REFRESH_TOKEN   = var.dropbox_refresh_token
-      NODE_OPTIONS            = "--max-old-space-size=2560" # Allow Node to use more heap
+      AWS_S3_BUCKET         = local.bucket_name
+      MEDIACONVERT_ENDPOINT = var.mediaconvert_endpoint
+      MEDIACONVERT_ROLE_ARN = var.mediaconvert_role_arn
+      DROPBOX_CLIENT_ID     = var.dropbox_client_id
+      DROPBOX_CLIENT_SECRET = var.dropbox_client_secret
+      DROPBOX_REFRESH_TOKEN = var.dropbox_refresh_token
+      NODE_OPTIONS          = "--max-old-space-size=2560" # Allow Node to use more heap
     }
   }
 }

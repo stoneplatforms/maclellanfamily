@@ -43,20 +43,11 @@ const s3Client = new S3Client({
   forcePathStyle: false
 });
 
-// Verify token with error handling
+// Verify token — rely on verifyIdToken (validates exp, etc.). Do not use auth_time vs wall
+// clock; that claim is not "seconds since this ID token was issued" and would reject
+// long-lived browser sessions after ~1h incorrectly.
 const verifyAuthToken = async (token: string) => {
-  try {
-    const decodedToken = await adminAuth.verifyIdToken(token);
-    const tokenAge = Date.now() / 1000 - decodedToken.auth_time;
-    
-    if (tokenAge > 3600) {
-      throw new Error('TOKEN_EXPIRED');
-    }
-    
-    return decodedToken;
-  } catch (error) {
-    throw error;
-  }
+  return adminAuth.verifyIdToken(token);
 };
 
 /**
@@ -113,17 +104,6 @@ export async function GET(
     try {
       decodedToken = await verifyAuthToken(token);
     } catch (error) {
-      if (error instanceof Error && error.message === 'TOKEN_EXPIRED') {
-        return NextResponse.json(
-          {
-            error: 'Token Expired',
-            message: 'Please refresh your session',
-            code: 'TOKEN_EXPIRED'
-          },
-          { status: 401 }
-        );
-      }
-      
       return NextResponse.json(
         {
           error: 'Authentication Failed',

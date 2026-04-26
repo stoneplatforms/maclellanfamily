@@ -8,9 +8,12 @@ RUN apt-get update && apt-get install -y zip && rm -rf /var/lib/apt/lists/*
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies including sharp for Linux
-# Use node:18-slim (Debian/glibc) to match AWS Lambda runtime
-RUN npm install --include=optional
+# Install dependencies; `sharp` must be the linux-x64 glibc build for AWS Lambda, not
+# a host-OS binary from a copied lockfile. Reinstall sharp explicitly for Lambda's runtime.
+# @see https://sharp.pixelplumbing.com/install#cross-platform
+RUN npm install --include=optional && \
+    rm -rf node_modules/sharp && \
+    npm install --os=linux --cpu=x64 sharp
 
 # Copy source and build
 COPY . .

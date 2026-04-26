@@ -1,7 +1,9 @@
 import { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { NextRequest, NextResponse } from "next/server";
-import { verifyIdToken, getUserDoc } from '../../lib/firebase-server';
+import { verifyIdToken } from '../../lib/firebase-server';
+import { ensureUserDocument } from '../../lib/ensure-user-doc';
+import type { DocumentSnapshot } from 'firebase-admin/firestore';
 
 const s3 = new S3Client({
   region: process.env.AWS_S3_REGION!,
@@ -32,24 +34,13 @@ async function verifyAuth(request: NextRequest) {
   }
 }
 
-async function getUserFolderPath(userId: string): Promise<string> {
-  console.log('Attempting to fetch user document for ID:', userId);
-  
-  try {
-    const userDoc = await getUserDoc(userId);
-    const userData = userDoc.data();
-    const folderPath = userData?.folderPath;
-    console.log('Found folderPath:', folderPath);
-
-    if (!folderPath) {
-      throw new Error('Folder path not found for user');
-    }
-
-    return folderPath;
-  } catch (error) {
-    console.error('Firestore error:', error);
-    throw new Error('Failed to fetch user data');
+function getFolderPathFromUserDoc(userDoc: DocumentSnapshot, userId: string): string {
+  const folderPath = userDoc.data()?.folderPath;
+  if (typeof folderPath !== 'string' || !folderPath.trim()) {
+    throw new Error('Folder path not configured for user');
   }
+  console.log('Found folderPath for', userId, ':', folderPath);
+  return folderPath.trim();
 }
 
 /**
@@ -112,7 +103,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const decodedToken = await verifyAuth(request);
     const userId = decodedToken.uid;
 
-    const folderPath = await getUserFolderPath(userId);
+    const userDoc = await ensureUserDocument({
+      uid: userId,
+      email: decodedToken.email,
+      displayName: decodedToken.displayName,
+    });
+    const folderPath = getFolderPathFromUserDoc(userDoc, userId);
     const s3Prefix = getS3Prefix(folderPath);
     console.log('Using S3 prefix:', s3Prefix);
 
@@ -242,7 +238,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const decodedToken = await verifyAuth(request);
     const userId = decodedToken.uid;
 
-    const folderPath = await getUserFolderPath(userId);
+    const userDoc = await ensureUserDocument({
+      uid: userId,
+      email: decodedToken.email,
+      displayName: decodedToken.displayName,
+    });
+    const folderPath = getFolderPathFromUserDoc(userDoc, userId);
     const s3Prefix = getS3Prefix(folderPath);
     console.log('Using S3 prefix for upload:', s3Prefix);
 

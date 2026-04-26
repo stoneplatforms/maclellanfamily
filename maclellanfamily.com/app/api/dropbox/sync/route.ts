@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '../../../lib/firebase-admin';
-import { syncDropboxToS3 } from '../../../lib/dropbox-sync';
+import { clearGlobalDropboxSyncCursor, isDropboxFullScopeSync, syncDropboxToS3 } from '../../../lib/dropbox-sync';
 
 async function verifyAdminRole(authHeader: string | null) {
   if (!authHeader?.startsWith('Bearer ')) {
@@ -18,21 +18,33 @@ async function verifyAdminRole(authHeader: string | null) {
 export async function POST(request: NextRequest) {
   try {
     const decoded = await verifyAdminRole(request.headers.get('authorization'));
-    const userDoc = await adminDb.collection('users').doc(decoded.uid).get();
-    const userFolderPath = userDoc.data()?.folderPath as string | undefined;
-    if (!userFolderPath) {
-      return NextResponse.json({ error: 'User folder path not configured' }, { status: 400 });
+    const forceFull = (() => {
+      const { searchParams } = new URL(request.url);
+      const v = searchParams.get('forceFull')?.toLowerCase();
+      return v === '1' || v === 'true' || v === 'yes';
+    })();
+
+    if (isDropboxFullScopeSync()) {
+      if (forceFull) {
+        await clearGlobalDropboxSyncCursor();
+        console.log('Manual sync: full-scope, forced full re-list (cursor cleared)');
+      } else {
+        console.log('Manual sync: full-scope (incremental if cursor exists; use ?forceFull=1 to re-list all files from Dropbox)');
+      }
+      await syncDropboxToS3({ fullScope: true, recursive: true });
+    } else {
+      const userDoc = await adminDb.collection('users').doc(decoded.uid).get();
+      const userFolderPath = userDoc.data()?.folderPath as string | undefined;
+      if (!userFolderPath) {
+        return NextResponse.json({ error: 'User folder path not configured' }, { status: 400 });
+      }
+
+      const cleanPath = userFolderPath.replace(/^\/+|\/+$/g, '');
+      const pathPrefix = cleanPath.toLowerCase().startsWith('apps') ? 'Apps' : '0 US';
+      console.log(`Manual sync using prefix: ${pathPrefix}, folderPath: ${userFolderPath}`);
+
+      await syncDropboxToS3({ userFolderPath, pathPrefix, recursive: true, syncUserId: decoded.uid });
     }
-
-    // Persist userFolderPath for webhook-triggered syncs
-    await adminDb.collection('integrations').doc('dropbox').set({ userFolderPath }, { merge: true });
-
-    // Determine prefix based on folder path (Apps vs 0 US)
-    const cleanPath = userFolderPath.replace(/^\/+|\/+$/g, '');
-    const pathPrefix = cleanPath.toLowerCase().startsWith('apps') ? 'Apps' : '0 US';
-    console.log(`Manual sync using prefix: ${pathPrefix}, folderPath: ${userFolderPath}`);
-
-    await syncDropboxToS3({ userFolderPath, pathPrefix, recursive: true });
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof Error) {

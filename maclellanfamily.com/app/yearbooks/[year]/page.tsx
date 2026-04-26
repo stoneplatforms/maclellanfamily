@@ -182,58 +182,78 @@ export default function YearPage() {
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
-    
-    const setupAuth = async () => {
-      try {
-        unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+
+    // Client navigation from /yearbooks: the session is already in memory, but
+    // onAuthStateChanged can fire a tick late — that left isAuthReady false and
+    // blocked the page until a full reload. Seed from currentUser (same as yearbooks/page.tsx).
+    if (auth.currentUser) {
+      setUser(auth.currentUser);
+      setIsAuthReady(true);
+    }
+
+    try {
+      unsubscribe = onAuthStateChanged(
+        auth,
+        (currentUser) => {
           if (!mounted.current) return;
-          
+
           setUser(currentUser);
           setIsAuthReady(true);
-          
+
           if (!currentUser) {
             navigateWithReload('/');
           }
-        }, (error) => {
-          console.error('Auth state change error:', error);
-          if (error instanceof FirebaseError && mounted.current) {
-            handleAuthError(error);
+        },
+        (err) => {
+          console.error('Auth state change error:', err);
+          if (err instanceof FirebaseError && mounted.current) {
+            handleAuthError(err);
           }
-        });
-      } catch (error) {
-        console.error('Auth setup error:', error);
-        if (mounted.current) {
-          if (error instanceof FirebaseError) {
-            handleAuthError(error);
-          } else {
-            setError('Authentication failed');
-          }
-          setIsAuthReady(true);
+        },
+      );
+    } catch (err) {
+      console.error('Auth setup error:', err);
+      if (mounted.current) {
+        if (err instanceof FirebaseError) {
+          handleAuthError(err);
+        } else {
+          setError('Authentication failed');
         }
+        setIsAuthReady(true);
       }
-    };
-
-    setupAuth();
+    }
 
     return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
+      if (unsubscribe) unsubscribe();
     };
   }, [handleAuthError]);
 
   useEffect(() => {
-    if (!user || !isAuthReady || !mounted.current) return;
+    if (!user || !isAuthReady) return;
 
-    const fetchFolders = async (retryCount = 0) => {
-      console.log('YearPage: fetchFolders called for year:', year);
+    if (!year || typeof year !== 'string' || !year.trim()) {
+      setError('Invalid year in URL');
+      setLoading(false);
+      return;
+    }
+
+    const ac = new AbortController();
+    const requestTimeout = setTimeout(() => ac.abort(), 90_000);
+    /** Stops setState if this effect instance was cleaned up. Do not use a shared `mounted`
+     * ref: its unmount effect can run before this async IIFE’s `finally`, so `mounted` is
+     * already false and we skip setLoading(false) even after a successful /api/ response
+     * (client nav + Strict Mode). */
+    let cancelled = false;
+
+    (async () => {
       setLoading(true);
       setError(null);
-      
-      try {
+
+      const run = async (retryCount: number): Promise<void> => {
         const token = await user.getIdToken(true);
         console.log('YearPage: Fetching /api/yearbooks/' + year);
-        const response = await fetch(`/api/yearbooks/${year}`, {
+        const response = await fetch(`/api/yearbooks/${encodeURIComponent(year)}`, {
+          signal: ac.signal,
           headers: {
             'Authorization': `Bearer ${token}`,
             'Cache-Control': 'no-store',
@@ -241,56 +261,61 @@ export default function YearPage() {
           },
         });
 
-        if (!mounted.current) return;
-
         const data = await response.json();
         console.log('YearPage: Response:', { ok: response.ok, status: response.status, data });
 
         if (!response.ok) {
           if (data.code === 'PLUGIN_ERROR' && retryCount < 2) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            return fetchFolders(retryCount + 1);
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            return run(retryCount + 1);
           }
-          
           if (response.status === 401) {
-            handleAuthError(new FirebaseError('auth/invalid-token', data.message || 'Authentication failed'));
+            await handleAuthError(
+              new FirebaseError('auth/invalid-token', data.message || 'Authentication failed')
+            );
             return;
           }
           throw new Error(data.message || `HTTP error! status: ${response.status}`);
         }
 
-        if (mounted.current && Array.isArray(data.folders)) {
+        if (Array.isArray(data.folders)) {
           console.log('YearPage: Setting folders:', data.folders.length, 'folders');
           setFolders(data.folders);
           setTimeout(() => {
-            if (mounted.current) {
-              setIsVisible(true);
-            }
+            if (!cancelled) setIsVisible(true);
           }, 100);
         } else {
-          console.log('YearPage: Not setting folders - mounted:', mounted.current, 'isArray:', Array.isArray(data.folders));
+          console.log('YearPage: Not setting folders - isArray:', Array.isArray(data.folders));
         }
+      };
+
+      try {
+        await run(0);
       } catch (err) {
-        console.error('YearPage: Error fetching folders:', err);
-        if (mounted.current) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          console.log('YearPage: Request aborted (navigation or timeout)');
+        } else {
+          console.error('YearPage: Error fetching folders:', err);
           if (err instanceof FirebaseError) {
-            handleAuthError(err);
+            await handleAuthError(err);
           } else {
             setError(err instanceof Error ? err.message : 'An error occurred');
           }
           setFolders([]);
         }
       } finally {
-        if (mounted.current) {
-          console.log('YearPage: Setting loading to false');
+        clearTimeout(requestTimeout);
+        if (!cancelled) {
           setLoading(false);
-        } else {
-          console.log('YearPage: Component unmounted, not setting loading to false');
         }
       }
-    };
+    })();
 
-    fetchFolders();
+    return () => {
+      cancelled = true;
+      ac.abort();
+      clearTimeout(requestTimeout);
+    };
   }, [year, user, isAuthReady, handleAuthError]);
 
   const handlePageTurn = (direction: 'next' | 'prev') => {
@@ -330,14 +355,17 @@ export default function YearPage() {
     return folders.slice(startIndex, startIndex + itemsPerPage);
   };
 
-  // Debug logging
-  console.log('YearPage render:', { isAuthReady, loading, hasUser: !!user, error, foldersCount: folders.length });
-
   if (!isAuthReady || loading || !user || error) {
     return (
       <div className="flex justify-center items-center min-h-screen bg-[#8b7355]">
         <div className={`text-xl ${error ? "text-red-500" : "text-white"}`}>
-          {error ? `Error: ${error}` : loading ? "Loading contents..." : "Checking authentication..."}
+          {error
+            ? `Error: ${error}`
+            : !isAuthReady
+              ? 'Checking authentication...'
+              : loading
+                ? 'Loading contents...'
+                : 'Checking authentication...'}
         </div>
       </div>
     );

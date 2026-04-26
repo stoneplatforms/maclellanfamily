@@ -1,0 +1,17 @@
+# Copy to terraform.tfvars and fill in secrets (terraform.tfvars is gitignored)
+#
+# S3 bucket must already exist in this region.
+# MediaConvert: AWS Console → MediaConvert → Account → copy API endpoint;
+#   IAM role for MediaConvert must trust mediaconvert.amazonaws.com and allow S3 read/write on the bucket.
+
+aws_region   = "us-east-1"
+project      = "maclellanfamily"
+bucket_name  = "www.maclellanfamily.com"
+
+dropbox_client_id     = "lvjlmql3sk3rtjc"
+dropbox_client_secret = "zdjjtz3nn7k5gwd"
+dropbox_refresh_token = "ehRuldQUjrEAAAAAAAAAAZuM3IfJb1MJozNRjBqPAcYolPuRTGrm97XjjSfjYccN"
+
+# Example shape — use your account’s real endpoint and role ARN
+mediaconvert_endpoint = "https://mediaconvert.us-east-1.amazonaws.com"
+mediaconvert_role_arn = "arn:aws:iam::509521484205:user/MediaConvertAccessRole"

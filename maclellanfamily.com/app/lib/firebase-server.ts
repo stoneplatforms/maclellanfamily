@@ -31,7 +31,9 @@ if (existingApps.length > 0) {
 }
 
 // Verify ID token using Firebase REST API (since we can't use client SDK verifyIdToken server-side)
-export async function verifyIdToken(idToken: string): Promise<{ uid: string; email?: string }> {
+export async function verifyIdToken(
+  idToken: string,
+): Promise<{ uid: string; email?: string; displayName?: string }> {
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
   if (!apiKey) {
     throw new Error('Firebase API key not configured');
@@ -58,18 +60,19 @@ export async function verifyIdToken(idToken: string): Promise<{ uid: string; ema
     throw new Error('User not found');
   }
 
-  const user = data.users[0];
+  const user = data.users[0] as { localId: string; email?: string; displayName?: string };
   return {
     uid: user.localId,
     email: user.email,
+    displayName: user.displayName,
   };
 }
 
-// Get user document from Firestore
+// Get user document from Firestore (client SDK — prefer admin + ensureUserDocument in API routes)
 export async function getUserDoc(userId: string) {
   const userDocRef = doc(db, 'users', userId);
   const userDoc = await getDoc(userDocRef);
-  
+
   if (!userDoc.exists()) {
     throw new Error('User document not found');
   }
