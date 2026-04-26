@@ -8,9 +8,9 @@ aws_region   = "us-east-1"
 project      = "maclellanfamily"
 bucket_name  = "www.maclellanfamily.com"
 
-dropbox_client_id     = "35m29zvt89kyau0"
-dropbox_client_secret = "8tc4oewi4qkq226"
-dropbox_refresh_token = "iku0qhGJx5MAAAAAAAAAAZFGGe7UdElwMdgofxDq-wMEwIk5LG0p_BfK-lNuzbcU"
+dropbox_client_id     = "lvjlmql3sk3rtjc"
+dropbox_client_secret = "zdjjtz3nn7k5gwd"
+dropbox_refresh_token = "ehRuldQUjrEAAAAAAAAAAZuM3IfJb1MJozNRjBqPAcYolPuRTGrm97XjjSfjYccN"
 
 # Example shape — use your account’s real endpoint and role ARN
 mediaconvert_endpoint = "https://mediaconvert.us-east-1.amazonaws.com"
