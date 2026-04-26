@@ -208,6 +208,14 @@ export async function processWebhookFiles(
     : undefined;
 
   console.log(`Cursor status: ${cursor ? 'Found cursor, doing incremental sync' : 'No cursor, doing full sync'}`);
+  const sqsReady =
+    Boolean(sqsClient && process.env.SQS_QUEUE_URL && !process.env.SQS_QUEUE_URL.includes('your-queue')) &&
+    Boolean(process.env.AWS_ACCESS_KEY_ID?.trim() && process.env.AWS_SECRET_ACCESS_KEY?.trim());
+  console.log(
+    `[dropbox] SQS can SendMessage: ${sqsReady} (queueUrl set: ${Boolean(process.env.SQS_QUEUE_URL?.trim())}, ` +
+      `AWS keys set: ${Boolean(process.env.AWS_ACCESS_KEY_ID?.trim() && process.env.AWS_SECRET_ACCESS_KEY?.trim())}, ` +
+      `region: ${process.env.AWS_S3_REGION ?? 'MISSING'}) — if true but no Lambda invocations, Dropbox likely returned 0 delta entries; use admin sync ?forceFull=1 or check file is under list root + image ext`,
+  );
 
   if (!cursor) {
     console.log('Starting full sync (no cursor found)...');

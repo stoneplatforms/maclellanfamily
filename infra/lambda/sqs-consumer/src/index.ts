@@ -29,6 +29,19 @@ type JobPayload = {
 };
 
 /**
+ * 409 + path/not_found: file id/path no longer exists in Dropbox (moved, deleted, or app scope changed).
+ * Do not SQS-retry — the job is permanently stale.
+ */
+function isDropboxPathGone(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const o = err as { status?: number; error?: { error_summary?: string; error?: { path?: { ['.tag']?: string } } } };
+  if (o.status !== 409) return false;
+  if (o.error?.error?.path?.['.tag'] === 'not_found') return true;
+  if (o.error?.error_summary?.toLowerCase().includes('path/not_found')) return true;
+  return false;
+}
+
+/**
  * Lambda handler with batch processing and partial failure support
  * - Processes multiple messages in parallel
  * - Reports only failed items back to SQS for retry
@@ -155,25 +168,41 @@ async function processImage(payload: JobPayload) {
     console.log(`✅ Processed: ${payload.s3Key} → ${s3Key} in ${totalTime}ms`);
     
   } catch (error) {
+    if (isDropboxPathGone(error)) {
+      console.warn(
+        `⏭️  Dropbox no longer has this file (dropping SQS job, no retry). Job key was: ${payload.s3Key} — re-sync will enqueue a fresh id if the file still exists under your folder.`,
+      );
+      return;
+    }
     console.error(`❌ Error processing ${payload.s3Key}:`, error);
     throw error; // Re-throw so SQS can retry
   }
 }
 
 async function processVideo(payload: JobPayload) {
-  // Step 1: stream original to S3 (multipart)
-  const tempLink = await dropbox.filesGetTemporaryLink({ path: payload.dropboxId });
-  const url = tempLink.result.link;
-  const baseKey = payload.path.replace(/^\/+/, '');
-  const { dir, name } = splitKey(baseKey);
-  const originalKey = `${dir}/${name}` + getExtensionFromPath(baseKey);
+  try {
+    // Step 1: stream original to S3 (multipart)
+    const tempLink = await dropbox.filesGetTemporaryLink({ path: payload.dropboxId });
+    const url = tempLink.result.link;
+    const baseKey = payload.path.replace(/^\/+/, '');
+    const { dir, name } = splitKey(baseKey);
+    const originalKey = `${dir}/${name}` + getExtensionFromPath(baseKey);
 
-  await streamUrlToS3(url, BUCKET, originalKey, getContentTypeFromExt(originalKey));
+    await streamUrlToS3(url, BUCKET, originalKey, getContentTypeFromExt(originalKey));
 
-  // Step 2: create MediaConvert HLS job
-  const destination = `s3://${BUCKET}/${dir}/outputs/${name}/`;
-  const job = buildHlsJob(originalKey, destination);
-  await mediaconvert.send(new CreateJobCommand(job));
+    // Step 2: create MediaConvert HLS job
+    const destination = `s3://${BUCKET}/${dir}/outputs/${name}/`;
+    const job = buildHlsJob(originalKey, destination);
+    await mediaconvert.send(new CreateJobCommand(job));
+  } catch (error) {
+    if (isDropboxPathGone(error)) {
+      console.warn(
+        `⏭️  Dropbox no longer has this file (dropping SQS job, no retry). Job key: ${payload.s3Key}`,
+      );
+      return;
+    }
+    throw error;
+  }
 }
 
 function buildHlsJob(inputKey: string, destination: string) {
