@@ -127,7 +127,12 @@ export async function POST(request: NextRequest) {
     // `DROPBOX_SYNC_MODE=full`: one `list_folder` over the whole scoped Dropbox; cursor in
     // `config/dropboxSync`. Otherwise per-user cursors in `users/{uid}` (folderPath = sync root).
     // `folderPath` is still used by the yearbook APIs to list a member’s S3 prefix only.
-    (async () => {
+    //
+    // IMPORTANT: await this work before returning 200. If we return while sync still runs, Vercel
+    // may freeze the isolate and the Dropbox/Firestore/SQS path never finishes (truncated logs, no SQS).
+    // vercel.json gives this route maxDuration: 60. Dropbox still expects a response within ~10s for the
+    // webhook delivery — incremental runs should be fast; very large full syncs may need /api/dropbox/sync.
+    try {
       if (isDropboxFullScopeSync()) {
         try {
           await processWebhookFiles({ fullScope: true });
@@ -137,9 +142,7 @@ export async function POST(request: NextRequest) {
             console.error('[dropbox/webhook] fallback full-scope sync failed:', syncError);
           });
         }
-        return;
-      }
-
+      } else {
       const usersSnap = await adminDb.collection('users').get();
       const withFolder = usersSnap.docs.filter((d) => {
         const data = d.data() as { folderPath?: string; dropboxWebhookSync?: boolean } | undefined;
@@ -151,9 +154,7 @@ export async function POST(request: NextRequest) {
 
       if (withFolder.length === 0) {
         console.warn('[dropbox/webhook] No users with non-empty folderPath; nothing to sync');
-        return;
-      }
-
+      } else {
       const byDropboxKey = new Map<string, (typeof withFolder)[0][]>();
       for (const d of withFolder) {
         const k = dropboxFolderKey(d);
@@ -217,11 +218,14 @@ export async function POST(request: NextRequest) {
       };
 
       await Promise.all(uniqueToRun.map((d) => runOne(d)));
-    })().catch((error) => {
+      }
+      }
+    } catch (error) {
       console.error('Error in webhook handler:', error);
-    });
+    }
 
-    // Respond immediately (Dropbox requires response within 10 seconds)
+    // Return after sync work completes (see note above re: Vercel + awaiting).
+    // Dropbox: respond within 10s when possible; maxDuration 60 in vercel.json for this route.
     return new NextResponse('OK', { status: 200 });
   } catch (error) {
     console.error('Webhook POST error:', error);

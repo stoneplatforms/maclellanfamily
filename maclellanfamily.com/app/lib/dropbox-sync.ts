@@ -495,7 +495,10 @@ async function processEntries(
 
       // RECOMMENDED: Use SQS + Lambda for ALL production workloads
       // Benefits: No timeout limits, parallel processing, handles multi-GB files
-      if (sqsClient && process.env.SQS_QUEUE_URL && !process.env.SQS_QUEUE_URL.includes('your-queue')) {
+      const queueUrl = process.env.SQS_QUEUE_URL?.trim() ?? '';
+      const canQueueSqs =
+        Boolean(sqsClient) && queueUrl.length > 0 && !queueUrl.includes('your-queue');
+      if (canQueueSqs) {
         console.log(`📨 Queueing to SQS: ${s3Key}`);
         await enqueueSqsJob({
           dropboxId: entry.id,
@@ -663,19 +666,41 @@ async function enqueueSqsJob(payload: {
   userFolderPath: string;
   s3Key: string;
 }) {
-  if (!sqsClient || !process.env.SQS_QUEUE_URL) return;
-  
+  const q = process.env.SQS_QUEUE_URL?.trim();
+  if (!q) {
+    console.warn(
+      '[dropbox] SQS_QUEUE_URL is not set — no message sent; Lambda will not run. Set it in Vercel (prod) to the SQS URL from `terraform output sqs_queue_url`.',
+    );
+    return;
+  }
+  if (q.includes('your-queue')) {
+    console.warn('[dropbox] SQS_QUEUE_URL looks like a placeholder; skipping SendMessage.');
+    return;
+  }
+  if (!sqsClient) {
+    console.warn('[dropbox] SQS client was not created; check SQS_QUEUE_URL at startup.');
+    return;
+  }
+
   const command = new SendMessageCommand({
-    QueueUrl: process.env.SQS_QUEUE_URL,
+    QueueUrl: q,
     MessageBody: JSON.stringify({
       ...payload,
       timestamp: new Date().toISOString(),
-      priority: payload.type === 'image' ? 'normal' : 'low'
-    })
+      priority: payload.type === 'image' ? 'normal' : 'low',
+    }),
   });
-  
-  await sqsClient.send(command);
-  console.log(`✅ Queued to SQS: ${payload.s3Key}`);
+
+  try {
+    await sqsClient.send(command);
+    console.log(`✅ Queued to SQS: ${payload.s3Key}`);
+  } catch (e) {
+    console.error(
+      '[dropbox] SQS SendMessage failed (check IAM sqs:SendMessage on this queue, region, and queue URL). Lambda will not run.',
+      e,
+    );
+    throw e;
+  }
 }
 
 
