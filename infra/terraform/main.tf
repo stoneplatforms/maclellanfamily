@@ -88,7 +88,7 @@ resource "aws_iam_role_policy_attachment" "attach_access" {
 resource "aws_lambda_function" "consumer" {
   function_name    = local.lambda_name
   role             = aws_iam_role.lambda_exec.arn
-  runtime          = "nodejs18.x"
+  runtime          = "nodejs22.x" # nodejs18.x EOL in Lambda; keep in sync with lambda/sqs-consumer Dockerfile + esbuild target
   handler          = "dist/index.handler"
   filename         = data.local_file.lambda_zip.filename
   source_code_hash = data.local_file.lambda_zip.content_base64sha256

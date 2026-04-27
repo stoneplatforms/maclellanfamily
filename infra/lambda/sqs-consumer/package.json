@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "type": "commonjs",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node18 --outfile=dist/index.js --external:sharp",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --outfile=dist/index.js --external:sharp",
     "build:linux": "powershell -ExecutionPolicy Bypass -File ./build-linux.ps1",
     "clean": "rm -rf dist"
   },
